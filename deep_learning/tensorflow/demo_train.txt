@@ -1,0 +1,244 @@
+import os
+import argparse
+import numpy as np
+import tensorflow as tf
+import cv2
+from cv2 import cv
+import pickle
+def encode_to_tfrecords(name_label_txt,img_dir,out_file='data.tfrecords',resize=(224,224)):
+  def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+  def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+  #img_dir='/home/scw4750/github/IJCB2017/liangjie_micc/7_gallery/brl_alignment'
+  #name_label_txt='name_label.txt'
+  #out_file='train.tfrecords'
+  
+  with open(name_label_txt,'rt') as f:
+      all_lines=f.readlines()
+  
+  writer=tf.python_io.TFRecordWriter(out_file)
+  for i in range(len(all_lines)):
+      tline=all_lines[i]
+      img_name=tline.split(' ')[0]
+      label=tline.split(' ')[1]
+      label=int(label)
+      img_path=img_dir+os.path.sep+img_name
+      img=cv2.imread(img_path)
+      img=cv2.resize(img,resize)
+      img_raw=img.tobytes()
+      example=tf.train.Example(features=tf.train.Features(feature={
+          'label':_int64_feature(label),
+          'img_raw':_bytes_feature(img_raw)
+          }))
+      writer.write(example.SerializeToString())
+  
+  writer.close()
+
+
+def read_and_decode(filename):
+    filename_queue = tf.train.string_input_producer([filename])
+
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue) 
+    features = tf.parse_single_example(serialized_example,
+                                       features={
+                                           'label': tf.FixedLenFeature([], tf.int64),
+                                           'img_raw' : tf.FixedLenFeature([], tf.string),
+                                       })
+
+    img = tf.decode_raw(features['img_raw'], tf.uint8)
+    label = tf.cast(features['label'], tf.int64)
+    return img, label
+
+
+class network(object):
+    def load_pkl(self,pkl_name):
+        with open(pkl_name,'rb') as f:
+            parameters=pickle.load(f)
+        self.weights={}
+        self.biases={}
+        for k,v in parameters.iteritems():
+            with tf.variable_scope("weights"):
+                self.weights[k]=tf.get_variable(k,initializer=v[0])
+            with tf.variable_scope("biases"):
+                self.biases[k]=tf.get_variable(k,initializer=v[1])
+            print k, v[0].shape, v[1].shape
+        self.weights['fc_8']= tf.Variable(np.zeros([4096,53]),dtype=tf.float32)
+        self.biases['fc_8']= tf.Variable(np.zeros(53),dtype=tf.float32)
+
+    def infer_train(self,image_batch):
+      with tf.name_scope('train'):
+        image_batch=tf.reshape(image_batch,shape=[-1,224,224,3])
+        #the images are loaded by opencv, so we should convert bgr image to rgb
+        image_batch=tf.cast(image_batch,tf.float32)
+        blue,green,red=tf.split(value=image_batch,num_or_size_splits=3,axis=3)
+        image_batch=tf.concat([tf.subtract(blue,93.5940),tf.subtract(green,104.7624),tf.subtract(red,129.1863)],3)
+
+        conv1_1 = tf.nn.bias_add(tf.nn.conv2d(image_batch, self.weights['conv1_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv1_1'],name='conv1_1')
+        conv1_1 = tf.nn.relu(conv1_1)
+        conv1_2 = tf.nn.bias_add(tf.nn.conv2d(conv1_1, self.weights['conv1_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv1_2'],name='conv1_2')
+        conv1_2 = tf.nn.relu(conv1_2)
+        pool1 = tf.nn.max_pool(conv1_2,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv2_1 = tf.nn.bias_add(tf.nn.conv2d(pool1, self.weights['conv2_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv2_1'],name='conv2_1')
+        conv2_1 = tf.nn.relu(conv2_1)
+        conv2_2 = tf.nn.bias_add(tf.nn.conv2d(conv2_1, self.weights['conv2_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv2_2'],name='conv2_2')
+        conv2_2 = tf.nn.relu(conv2_2)
+        pool2 = tf.nn.max_pool(conv2_2,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv3_1 = tf.nn.bias_add(tf.nn.conv2d(pool2, self.weights['conv3_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_1'],name='conv3_1')
+        conv3_1 = tf.nn.relu(conv3_1)
+        conv3_2 = tf.nn.bias_add(tf.nn.conv2d(conv3_1, self.weights['conv3_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_2'],name='conv3_2')
+        conv3_2 = tf.nn.relu(conv3_2)
+        conv3_3 = tf.nn.bias_add(tf.nn.conv2d(conv3_2, self.weights['conv3_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_3'],name='conv3_3')
+        conv3_3 = tf.nn.relu(conv3_3)
+        pool3 = tf.nn.max_pool(conv3_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv4_1 = tf.nn.bias_add(tf.nn.conv2d(pool3, self.weights['conv4_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_1'],name='conv4_1')
+        conv4_1 = tf.nn.relu(conv4_1)
+        conv4_2 = tf.nn.bias_add(tf.nn.conv2d(conv4_1, self.weights['conv4_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_2'],name='conv4_2')
+        conv4_2 = tf.nn.relu(conv4_2)
+        conv4_3 = tf.nn.bias_add(tf.nn.conv2d(conv4_2, self.weights['conv4_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_3'],name='conv4_3')
+        conv4_3 = tf.nn.relu(conv4_3)
+        pool4 = tf.nn.max_pool(conv4_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv5_1 = tf.nn.bias_add(tf.nn.conv2d(pool4, self.weights['conv5_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_1'],name='conv5_1')
+        conv5_1 = tf.nn.relu(conv5_1)
+        conv5_2 = tf.nn.bias_add(tf.nn.conv2d(conv5_1, self.weights['conv5_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_2'],name='conv5_2')
+        conv5_2 = tf.nn.relu(conv5_2)
+        conv5_3 = tf.nn.bias_add(tf.nn.conv2d(conv5_2, self.weights['conv5_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_3'],name='conv5_3')
+        conv5_3 = tf.nn.relu(conv5_3)
+        pool5 = tf.nn.max_pool(conv5_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME',name='pool5')
+        pool5=tf.transpose(pool5,(0,3,1,2))
+        pool5=tf.reshape(pool5,shape=(tf.shape(pool5)[0],-1))
+        fc6 = tf.nn.bias_add(tf.matmul(pool5, self.weights['fc6']),self.biases['fc6'],name='fc6')
+        fc6 = tf.nn.relu(fc6)
+        fc6=tf.nn.dropout(fc6,0.5)
+        fc7 = tf.nn.bias_add(tf.matmul(fc6, self.weights['fc7']),self.biases['fc7'],name='fc7')
+        fc7 = tf.nn.relu(fc7)
+        fc7=tf.nn.dropout(fc7,0.5)
+        fc_8 = tf.nn.bias_add(tf.matmul(fc7, self.weights['fc_8']),self.biases['fc_8'])
+        return fc_8
+        
+    def infer_test(self,image_batch):
+      with tf.name_scope('test'):
+        image_batch=tf.reshape(image_batch,shape=[-1,224,224,3])
+        #the images are loaded by opencv, so we should convert bgr image to rgb
+        image_batch=tf.cast(image_batch,tf.float32)
+        blue,green,red=tf.split(value=image_batch,num_or_size_splits=3,axis=3)
+        image_batch=tf.concat([tf.subtract(blue,93.5940),tf.subtract(green,104.7624),tf.subtract(red,129.1863)],3)
+
+        conv1_1 = tf.nn.bias_add(tf.nn.conv2d(image_batch, self.weights['conv1_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv1_1'],name='conv1_1')
+        conv1_1 = tf.nn.relu(conv1_1)
+        conv1_2 = tf.nn.bias_add(tf.nn.conv2d(conv1_1, self.weights['conv1_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv1_2'],name='conv1_2')
+        conv1_2 = tf.nn.relu(conv1_2)
+        pool1 = tf.nn.max_pool(conv1_2,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv2_1 = tf.nn.bias_add(tf.nn.conv2d(pool1, self.weights['conv2_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv2_1'],name='conv2_1')
+        conv2_1 = tf.nn.relu(conv2_1)
+        conv2_2 = tf.nn.bias_add(tf.nn.conv2d(conv2_1, self.weights['conv2_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv2_2'],name='conv2_2')
+        conv2_2 = tf.nn.relu(conv2_2)
+        pool2 = tf.nn.max_pool(conv2_2,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv3_1 = tf.nn.bias_add(tf.nn.conv2d(pool2, self.weights['conv3_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_1'],name='conv3_1')
+        conv3_1 = tf.nn.relu(conv3_1)
+        conv3_2 = tf.nn.bias_add(tf.nn.conv2d(conv3_1, self.weights['conv3_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_2'],name='conv3_2')
+        conv3_2 = tf.nn.relu(conv3_2)
+        conv3_3 = tf.nn.bias_add(tf.nn.conv2d(conv3_2, self.weights['conv3_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv3_3'],name='conv3_3')
+        conv3_3 = tf.nn.relu(conv3_3)
+        pool3 = tf.nn.max_pool(conv3_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv4_1 = tf.nn.bias_add(tf.nn.conv2d(pool3, self.weights['conv4_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_1'],name='conv4_1')
+        conv4_1 = tf.nn.relu(conv4_1)
+        conv4_2 = tf.nn.bias_add(tf.nn.conv2d(conv4_1, self.weights['conv4_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_2'],name='conv4_2')
+        conv4_2 = tf.nn.relu(conv4_2)
+        conv4_3 = tf.nn.bias_add(tf.nn.conv2d(conv4_2, self.weights['conv4_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv4_3'],name='conv4_3')
+        conv4_3 = tf.nn.relu(conv4_3)
+        pool4 = tf.nn.max_pool(conv4_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME')
+        conv5_1 = tf.nn.bias_add(tf.nn.conv2d(pool4, self.weights['conv5_1'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_1'],name='conv5_1')
+        conv5_1 = tf.nn.relu(conv5_1)
+        conv5_2 = tf.nn.bias_add(tf.nn.conv2d(conv5_1, self.weights['conv5_2'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_2'],name='conv5_2')
+        conv5_2 = tf.nn.relu(conv5_2)
+        conv5_3 = tf.nn.bias_add(tf.nn.conv2d(conv5_2, self.weights['conv5_3'],strides=[1,1,1,1], padding='SAME'),self.biases['conv5_3'],name='conv5_3')
+        conv5_3 = tf.nn.relu(conv5_3)
+        pool5 = tf.nn.max_pool(conv5_3,ksize=(1,2,2,1),strides=(1,2,2,1),padding='SAME',name='pool5')
+        pool5=tf.transpose(pool5,(0,3,1,2))
+        pool5=tf.reshape(pool5,shape=(tf.shape(pool5)[0],-1))
+        fc6 = tf.nn.bias_add(tf.matmul(pool5, self.weights['fc6']),self.biases['fc6'],name='fc6')
+        fc6 = tf.nn.relu(fc6)
+        #fc6=tf.nn.dropout(fc6,0.5)
+        fc7 = tf.nn.bias_add(tf.matmul(fc6, self.weights['fc7']),self.biases['fc7'],name='fc7')
+        fc7 = tf.nn.relu(fc7)
+        #fc7=tf.nn.dropout(fc7,0.5)
+        fc_8 = tf.nn.bias_add(tf.matmul(fc7, self.weights['fc_8']),self.biases['fc_8'])
+        return fc_8
+#for train
+batch_size=20
+net=network()
+net.load_pkl("pkl_model/vgg.pkl")
+image,label=read_and_decode('tfrecords/train.tfrecords')
+image=tf.reshape(image,shape=[224,224,3])
+label=tf.one_hot(label,53)
+image_batch,label_batch=tf.train.batch([image,label],batch_size=batch_size,capacity=371)
+inf=net.infer_train(image_batch)
+
+loss=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=inf,labels=label_batch))
+#loss=tf.divide(loss,batch_size)
+optimizer=tf.train.GradientDescentOptimizer(0.001).minimize(loss)
+
+#end:for train
+
+#for test
+test_image,test_label=read_and_decode('tfrecords/train.tfrecords')
+test_image=tf.reshape(test_image,shape=[224,224,3])
+test_label=tf.cast(test_label,tf.int32)
+test_image,test_label=tf.train.batch([test_image,test_label],batch_size=batch_size,capacity=371)
+
+test_inf=net.infer_test(test_image)
+tf_max_indices=tf.argmax(test_inf,1)
+correct_prediction = tf.equal(tf.cast(tf_max_indices,tf.int32), test_label)
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) 
+
+#saved model dir
+ckpt_model_dir='ckpt_model'
+#end:for test
+
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    coord=tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    #file_writer = tf.summary.FileWriter('log/logs', sess.graph)
+    #con=tf.get_default_graph().get_tensor_by_name('network/pool5:0')
+    #print con.shape
+    if os.path.exists(os.path.join(ckpt_model_dir,'vgg.ckpt')) is True:
+            tf.train.Saver(max_to_keep=None).restore(session, os.path.join(ckpt_model_dir,'vgg.ckpt'))  
+    for i in range(100000):
+      if i%10==0:
+          accuracy_np,res_label,tf_indice=sess.run([accuracy,test_label,tf_max_indices])
+          #print res_label, tf_indice
+          print '***************test accruacy:',accuracy_np,'*******************'
+      _,loss_result=sess.run([optimizer,loss])
+      #cv2.imshow("haha",con[0]/255)
+      #cv2.waitKey(0)
+      print i,":iteration  loss:",loss_result
+
+#saver=tf.train.import_meta_graph('check_point/vgg.meta')
+#graph=tf.get_default_graph()
+#input_maps=graph.get_tensor_by_name('Placeholder:0')
+#fc7=graph.get_tensor_by_name('fc7:0')
+#fc8 = tf.nn.conv2d(fc7, tf.Variable(np.zeros([1,1,4096,53]),dtype=tf.float32),strides=(1, 1, 1, 1),padding='VALID')
+#fc8=tf.nn.bias_add(fc8,tf.Variable(np.zeros(53),dtype=tf.float32),name='fc8')
+
+#with tf.Session() as sess:
+#
+#    sess.run(tf.global_variables_initializer())
+#    coord = tf.train.Coordinator()
+#    image_batch,label_batch=tf.train.batch([image,label],batch_size=1,capacity=371)
+#    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+#    loss=tf.reduce_mean(tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=fc8,labels=label_batch)))
+#    optimizer=tf.train.GradientDescentOptimizer(0.001).minimize(loss)
+#    for _ in range(10000):
+#      numpy_image=image_batch.eval()
+#      cv2.imshow("haha",numpy_image[0]/255)
+#      cv2.waitKey(1)
+#      _,loss_result=sess.run([optimizer,loss],feed_dict={input_maps:numpy_image})
+#      print loss_result
+#      
+#    coord.request_stop()  
+#    coord.join(threads)

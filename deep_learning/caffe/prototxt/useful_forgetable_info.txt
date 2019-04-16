@@ -1,0 +1,152 @@
+data_layer:
+name: "DeepFace_set003_net"
+layer{
+  name: "image"
+  type: "Data"
+  top: "image"
+  top: "image_label"
+  include {
+    phase: TRAIN
+  }
+  data_param{
+    source:"/home/scw4750/github/unrolling/zero/Lightencnn/unroll_frontal_data_fine_tuning/data_lmdb/300w_lmdb"
+    backend: LMDB
+    batch_size: 60
+  }
+  transform_param{
+    scale:0.003921	
+  }
+}
+layer{
+  name: "image"
+  type: "Data"
+  top: "image"
+  top: "image_label"
+  include {
+    phase: TEST
+  }
+  data_param{
+    source:"/home/scw4750/github/unrolling/zero/Lightencnn/unroll_frontal_data_fine_tuning/data_lmdb/300w_val_lmdb"
+    backend: LMDB
+    batch_size: 30
+  }
+  transform_param{
+    scale:0.003921	
+  }
+
+}
+
+
+silienc_layer:
+layer{
+  name: "silence_net"
+  type: "Silence"
+  bottom: "ori_label"
+}
+
+
+
+ContrastiveLoss:
+layer {
+  name: "loss"
+  type: "ContrastiveLoss"
+  bottom: "gallery_fea"
+  bottom: "probe_fea"
+  bottom: "probe_label"
+  top: "loss"
+  contrastive_loss_param {
+    margin: 1
+  }
+  #loss_weight:1
+  #include: { phase: TEST }
+}
+
+
+
+shared_parameter:
+layer {
+  name: "concat_ori_pair"
+  type: "Concat"
+  bottom: "ori"
+  bottom: "pair"
+  concat_param{
+    concat_dim:0
+  }
+  top: "concat_ori_pair"
+}
+
+layer{
+  name: "slice_ori_pair"
+  type:"Slice"
+  slice_param {
+	slice_dim: 0
+  }
+  bottom: "eltwise_fc1"
+  top: "ori_fea"
+  top: "pair_fea"
+}
+
+}
+
+normalize
+layer{
+   name:"normalize"
+   type:"Normalize"
+   bottom: "fc5"
+   top:"normalize"
+}
+
+centerloss center loss
+layer{
+  name: "fc2"
+  type: "InnerProduct"
+
+  inner_product_param{
+	num_output: 158
+	weight_filler {
+	  type: "xavier"
+	}
+	bias_filler {
+	  type: "constant"
+	  value: 0.1
+	}	
+  }
+  bottom: "eltwise_fc1"
+  top: "fc2"
+}
+layer {
+  name: "loss"
+  type: "SoftmaxWithLoss"
+  bottom: "fc2"
+  bottom: "image_label"
+  include: { phase: TRAIN }
+  top: "loss" 
+}
+layer {
+  name: "center_loss"
+  type: "CenterLoss"
+  bottom: "eltwise_fc1"
+  bottom: "image_label"
+  top: "center_loss"
+  include: { phase: TRAIN }
+  param {
+    lr_mult: 1
+    decay_mult: 2 
+  }
+  center_loss_param {
+    num_output: 158
+    center_filler {
+      type: "xavier"
+    }
+  }
+  loss_weight: 0.016
+}
+layer {
+  name: "accuracy"
+  type: "Accuracy"
+  bottom: "fc2"
+  bottom: "image_label"
+  top: "accuracy"
+  include: { phase: TEST }
+}
+

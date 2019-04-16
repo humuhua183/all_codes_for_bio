@@ -1,0 +1,34 @@
+%  net                                -- for special network
+%  net_param.data_key                 -- the input data layer name
+%  net_param.feature_key              -- the feature layer name
+%  net_param.is_gray                  -- true if the channel of input layer is
+%           1;false if the channel of input layer is 3
+%  net_param.data_size                -- the data size of input layer.Example:[height width]
+%  net_param.norm_type                -- type=0 indicates that the data is just divided by 255
+%           type==1 indicates that the data is substracted by [129.1863,104.7624,93.5940]
+%           type==2 indicates that we process data as eccv16 deep face
+%  net_param.averageImg               -- the mean value of three channels;if gray,it
+%          is zero,otherwise,[129.1863,104.7624,93.5940]
+%
+
+%the parameters about alignment.
+%                Big notices: 1) the feature point file(default is '*.5pt') containing feature points should be stored aside image
+%                             2) facial points should be stored as left-eye-x left-eye-y right-eye-x right-eye-y nose-x  nose-y left-mouse-x  left-mouse-y right-mouse-x  right-mouse-y.
+%                             if alignment_type is 'bbox' then,box bounding should be provided and stored as x y width height
+%  preprocess_param.do_alignment       --do alignment
+%  preprocess_param.align_param        --alignment param
+%  preprocess_param.align_param.pts_postfix  --the postfix of feature points file(default is '5pt')
+%  preprocess_param.align_param.alignment_type 
+%                                      --candidates: 
+%                                        'lightcnn' A Light CNN for Deep Face Representation with Noisy Labels        code: https://github.com/AlfredXiangWu/caffe
+%                                        'centerloss': A Discriminative Feature Learning Approach for Deep Face Recognition          Yandong Wen, Kaipeng Zhang, Zhifeng Li*, Yu Qiao  'eccv16': code: github.com/ydwen/caffe-face                  
+%		                         'bbox': see the code in tools/extract_feature_single_image   
+%  preprocess_param.is_continue_without_landmarks  --as the name shows
+%  preprocess_param.is_square         -- to ensure the input images of  
+%          network is square. If the origin image is not square, then this
+%          code does following things:
+%              1) size=max(height,width)
+%              2) data_image=ones(size,size)*255
+%              3) To put the origin image to the center of data_image
+%          notices:if this parameter is true,then the do_alignment must be false.
+%
